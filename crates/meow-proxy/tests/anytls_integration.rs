@@ -165,7 +165,6 @@ async fn anytls_concurrent_dials_each_get_independent_streams() {
     let mut handles = Vec::new();
     for i in 0..4u8 {
         let adapter = Arc::clone(&adapter);
-        let echo_addr = echo_addr;
         handles.push(tokio::spawn(async move {
             let metadata = Metadata {
                 network: Network::Tcp,
