@@ -111,16 +111,15 @@ async fn handle_http_inner(
         None
     };
 
-    // Parse the request line from the buffer
+    // Parse the request line from the buffer — no heap allocation.
     let request_str = String::from_utf8_lossy(&request_buf);
-    let request_line = request_str
-        .lines()
-        .next()
-        .ok_or("empty request")?
-        .to_string();
+    let request_line = request_str.lines().next().ok_or("empty request")?;
 
-    let parts: Vec<&str> = request_line.split_whitespace().collect();
-    if parts.len() < 3 {
+    let mut parts = [""; 3];
+    for (i, part) in request_line.split_whitespace().take(3).enumerate() {
+        parts[i] = part;
+    }
+    if parts[2].is_empty() {
         return Err("invalid HTTP request line".into());
     }
 
@@ -136,7 +135,7 @@ async fn handle_http_inner(
             conn_type: ConnType::Https,
             src_ip: Some(src_addr.ip()),
             src_port: src_addr.port(),
-            host: host.as_str().into(),
+            host: host.into(),
             dst_port: port,
             in_name: in_name.into(),
             in_port,
@@ -217,7 +216,7 @@ async fn handle_http_inner(
             conn_type: ConnType::Http,
             src_ip: Some(src_addr.ip()),
             src_port: src_addr.port(),
-            host: host.as_str().into(),
+            host: host.into(),
             dst_port: port,
             in_name: in_name.into(),
             in_port,
@@ -328,18 +327,17 @@ fn find_crlf_crlf(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
-fn parse_host_port(target: &str, default_port: u16) -> (String, u16) {
-    // target is like "host:port" or just "host"
+fn parse_host_port(target: &str, default_port: u16) -> (&str, u16) {
     if let Some((host, port_str)) = target.rsplit_once(':') {
         if let Ok(port) = port_str.parse::<u16>() {
-            return (host.to_string(), port);
+            return (host, port);
         }
     }
-    (target.to_string(), default_port)
+    (target, default_port)
 }
 
 /// Parse host and port from an absolute HTTP URL like "http://ipinfo.io/json"
-fn parse_url_host_port(url: &str) -> (String, u16) {
+fn parse_url_host_port(url: &str) -> (&str, u16) {
     // Strip scheme
     let without_scheme = url
         .strip_prefix("http://")

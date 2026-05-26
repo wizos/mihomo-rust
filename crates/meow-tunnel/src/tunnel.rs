@@ -25,7 +25,7 @@ use tracing::{debug, info};
 pub struct RouteTable {
     pub rules: Arc<Vec<Box<dyn Rule>>>,
     pub domain_index: Arc<DomainIndex>,
-    pub proxies: HashMap<String, Arc<dyn Proxy>>,
+    pub proxies: HashMap<SmolStr, Arc<dyn Proxy>>,
 }
 
 impl RouteTable {
@@ -79,14 +79,14 @@ impl TunnelInner {
             // `DNSMapping` mode contract used by the tproxy listener.
             if metadata.host.is_empty() {
                 if let Some(host) = self.resolver.reverse_lookup(ip) {
-                    metadata.host = host.into();
+                    metadata.host = host;
                 }
             }
             return;
         }
         if let Some(host) = self.resolver.reverse_lookup(ip) {
             debug!("pre_handle_metadata: fake-ip {} → {}", ip, host);
-            metadata.host = host.into();
+            metadata.host = host;
             metadata.dst_ip = None;
         } else {
             // Fake IP without a reverse mapping — pool wrap evicted the
@@ -267,7 +267,7 @@ impl Tunnel {
         );
     }
 
-    pub fn update_proxies(&self, proxies: HashMap<String, Arc<dyn Proxy>>) {
+    pub fn update_proxies(&self, proxies: HashMap<SmolStr, Arc<dyn Proxy>>) {
         // Preserve the current rules + index via Arc refcount bumps.
         let current = self.inner.route.load();
         let new_route = RouteTable {
@@ -287,7 +287,7 @@ impl Tunnel {
         &self.inner.resolver
     }
 
-    pub fn proxies(&self) -> HashMap<String, Arc<dyn Proxy>> {
+    pub fn proxies(&self) -> HashMap<SmolStr, Arc<dyn Proxy>> {
         self.inner.route.load().proxies.clone()
     }
 

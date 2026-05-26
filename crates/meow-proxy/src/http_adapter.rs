@@ -25,8 +25,8 @@ use base64::Engine as _;
 use meow_common::{
     AdapterType, MeowError, Metadata, ProxyAdapter, ProxyConn, ProxyHealth, ProxyPacketConn, Result,
 };
+use smol_str::SmolStr;
 use std::fmt;
-use std::fmt::Write as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
@@ -38,11 +38,11 @@ use crate::stream_conn::StreamConn;
 ///
 /// upstream: `adapter/outbound/http.go` — `HttpAdapter`
 pub struct HttpAdapter {
-    name: String,
-    server: String,
+    name: SmolStr,
+    server: SmolStr,
     port: u16,
     /// `"server:port"` — returned by `addr()` for relay metadata building.
-    addr_str: String,
+    addr_str: SmolStr,
     /// `Some((username, password))` — both present or neither (ADR-0002 Class A).
     auth: Option<(String, String)>,
     tls: bool,
@@ -67,9 +67,9 @@ impl HttpAdapter {
         extra_headers: Vec<(String, String)>,
     ) -> Self {
         Self {
-            name: name.to_string(),
-            addr_str: format!("{server}:{port}"),
-            server: server.to_string(),
+            name: SmolStr::from(name),
+            addr_str: SmolStr::from(format!("{server}:{port}")),
+            server: SmolStr::from(server),
             port,
             auth,
             tls,
@@ -91,7 +91,7 @@ impl HttpAdapter {
 
             let tls_cfg = TlsConfig {
                 skip_cert_verify: self.skip_cert_verify,
-                ..TlsConfig::new(&self.server)
+                ..TlsConfig::new(self.server.as_str())
             };
             let tls_layer = TlsLayer::new(&tls_cfg).map_err(|e| MeowError::Proxy(e.to_string()))?;
             tls_layer
@@ -115,20 +115,25 @@ impl HttpAdapter {
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
-        let mut req = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
+        use std::io::Write as _;
+        let mut buf = [0u8; 1024];
+        let mut cursor: &mut [u8] = &mut buf;
+        let _ = write!(cursor, "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
 
         if let Some((user, pass)) = &self.auth {
             let creds = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"));
-            let _ = write!(req, "Proxy-Authorization: Basic {creds}\r\n");
+            let _ = write!(cursor, "Proxy-Authorization: Basic {creds}\r\n");
         }
 
         for (k, v) in &self.extra_headers {
-            let _ = write!(req, "{k}: {v}\r\n");
+            let _ = write!(cursor, "{k}: {v}\r\n");
         }
-        req.push_str("\r\n");
+        let _ = write!(cursor, "\r\n");
+        let remaining = cursor.len();
+        let written = buf.len() - remaining;
 
         stream
-            .write_all(req.as_bytes())
+            .write_all(&buf[..written])
             .await
             .map_err(MeowError::Io)?;
 
@@ -287,6 +292,7 @@ async fn read_line<R: tokio::io::AsyncRead + Unpin>(reader: &mut R) -> Result<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
 
     // ─── Helper ──────────────────────────────────────────────────────────────
 

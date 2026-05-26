@@ -8,6 +8,7 @@ use hickory_proto::rr::RecordType;
 use ipnet::IpNet;
 use meow_common::DnsMode;
 use meow_trie::DomainTrie;
+use smol_str::SmolStr;
 use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -402,7 +403,7 @@ impl Resolver {
         use_hosts: bool,
         policy: Option<NameserverPolicy>,
         fallback_filter: Option<FallbackFilter>,
-        proxy_registry: &HashMap<String, Arc<dyn meow_common::Proxy>>,
+        proxy_registry: &HashMap<SmolStr, Arc<dyn meow_common::Proxy>>,
     ) -> Result<Self, BootstrapError> {
         // ── Validate proxy references up front so misconfig fails loud.
         // `default_ns` entries are forbidden from carrying #PROXY — they
@@ -430,7 +431,7 @@ impl Resolver {
                     proxy: p.clone(),
                 });
             }
-            if !proxy_registry.contains_key(p) {
+            if !proxy_registry.contains_key(p.as_str()) {
                 return Err(BootstrapError::UnknownProxy {
                     nameserver: entry.url.to_string(),
                     proxy: p.clone(),
@@ -448,7 +449,7 @@ impl Resolver {
                     .map(|e| {
                         e.proxy
                             .as_ref()
-                            .and_then(|p| proxy_registry.get(p).cloned())
+                            .and_then(|p| proxy_registry.get(p.as_str()).cloned())
                     })
                     .collect()
             };
@@ -828,10 +829,7 @@ impl Resolver {
         None
     }
 
-    pub fn reverse_lookup(&self, ip: IpAddr) -> Option<String> {
-        // Fake-IP pools own the authoritative reverse mapping for their
-        // synthesised IPs. Consult them first; fall back to the snooping
-        // cache for `Mapping` mode or real-IP hits.
+    pub fn reverse_lookup(&self, ip: IpAddr) -> Option<SmolStr> {
         if let Some(pool) = &self.fakeip_v4 {
             if let Some(host) = pool.look_back(ip) {
                 return Some(host);
